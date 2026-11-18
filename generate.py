@@ -1,49 +1,57 @@
 #!/usr/bin/env python3
-"""Draw the front page for 18 November 2026 and save it as entry.png.
+"""Draw the front page for Wednesday 18 November 2026.
 
-Everything is drawn with Pillow primitives: a navy masthead, a dramatic
-lead scene (the Kerch bridge with its road arch down, missiles over the
-Gulf), a two-line lead headline, a six-cell story grid and an ALSO TODAY
-strip. No network, no timestamps, no randomness: running this script twice
-writes byte-identical output.
+One 1024x1024 PNG summing up the day's world news as a dense,
+dramatic newspaper front page: a masthead, a drawn two-scene lead
+illustration (missiles over the Gulf, the Kerch bridge falling),
+a two-line lead headline, six more stories in a 2x3 grid and an
+ALSO TODAY strip. Everything is drawn with Pillow; no photo, no
+network and no randomness, so two runs write byte-identical files.
 """
 
 import math
-import os
 
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1024, 1024
-PAPER = (247, 242, 232)
-INK = (22, 22, 22)
-NAVY = (13, 29, 56)
-NAVY_LIGHT = (24, 48, 88)
-RED = (176, 32, 32)
-RED_SOFT = (196, 64, 48)
-GOLD = (214, 164, 62)
-GREY = (104, 100, 92)
-CARD = (255, 255, 255)
-CARD_EDGE = (216, 210, 196)
-
+W = H = 1024
+PAPER = (247, 239, 220)
+INK = (20, 20, 20)
+RED = (163, 22, 22)
+NAVY = (15, 42, 68)
+GOLD = (201, 162, 39)
+CREAM = (248, 244, 231)
+NIGHT = (11, 53, 66)
+SEA = (16, 66, 92)
+PALE_SKY = (214, 210, 198)
 FONT_DIR = "/usr/share/fonts/truetype/dejavu"
 
 
-def font(name, size):
-    return ImageFont.truetype(os.path.join(FONT_DIR, name), size)
+def _font(name, size):
+    return ImageFont.truetype("%s/%s" % (FONT_DIR, name), size)
 
 
-F_SERIF_BIG = lambda s: font("DejaVuSerif-Bold.ttf", s)
-F_BOLD = lambda s: font("DejaVuSans-Bold.ttf", s)
-F_REG = lambda s: font("DejaVuSans.ttf", s)
+def serif_b(size):
+    return _font("DejaVuSerif-Bold.ttf", size)
 
 
-def wrap_text(text, fnt, max_w):
+def serif(size):
+    return _font("DejaVuSerif.ttf", size)
+
+
+def sans_b(size):
+    return _font("DejaVuSans-Bold.ttf", size)
+
+
+def sans(size):
+    return _font("DejaVuSans.ttf", size)
+
+
+def wrap(draw, text, fnt, max_w):
     """Greedy word wrap; returns a list of lines that fit max_w."""
-    words = text.split()
     lines, cur = [], ""
-    for word in words:
-        trial = word if not cur else cur + " " + word
-        if fnt.getlength(trial) <= max_w:
+    for word in text.split():
+        trial = (cur + " " + word).strip()
+        if draw.textlength(trial, font=fnt) <= max_w:
             cur = trial
         else:
             if cur:
@@ -54,309 +62,267 @@ def wrap_text(text, fnt, max_w):
     return lines
 
 
-def draw_lines(draw, lines, fnt, x, y, fill, leading):
-    """Draw a list of lines top to bottom; returns the y after the last."""
+def centre_block(draw, lines, fnt, cx, y, fill, leading):
+    """Draw lines centred on cx, starting at y; returns the next y."""
     for line in lines:
-        draw.text((x, y), line, font=fnt, fill=fill)
+        w = draw.textlength(line, font=fnt)
+        draw.text((cx - w / 2, y), line, font=fnt, fill=fill)
         y += leading
     return y
 
 
-def blend(a, b, t):
-    return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
+def burst(draw, cx, cy, r_out, r_in, points, fill):
+    """A starburst polygon (explosion flash) centred on cx, cy."""
+    pts = []
+    for i in range(points * 2):
+        r = r_out if i % 2 == 0 else r_in
+        a = math.pi * i / points - math.pi / 2
+        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    draw.polygon(pts, fill=fill)
 
 
-def v_gradient(draw, box, top, bottom, steps=28):
-    """Fill box with a vertical gradient in a few flat bands (keeps the
-    PNG small while looking smooth at a glance)."""
-    x0, y0, x1, y1 = box
-    span = max(1, y1 - y0)
-    for i in range(steps):
-        t0 = i / steps
-        t1 = (i + 1) / steps
-        col = blend(top, bottom, (t0 + t1) / 2)
-        draw.rectangle([x0, y0 + int(span * t0), x1, y0 + int(span * t1)],
-                       fill=col)
+def star(draw, cx, cy, r, fill):
+    """A small four-point star (a distant light or spark)."""
+    pts = [(cx, cy - r), (cx + r * 0.28, cy - r * 0.28), (cx + r, cy),
+           (cx + r * 0.28, cy + r * 0.28), (cx, cy + r),
+           (cx - r * 0.28, cy + r * 0.28), (cx - r, cy),
+           (cx - r * 0.28, cy - r * 0.28)]
+    draw.polygon(pts, fill=fill)
 
 
-def soft_disc(base, cx, cy, r, colour, alpha=110):
-    """Paint a translucent disc onto base (an RGBA overlay) for glows."""
-    layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=colour + (alpha,))
-    base.alpha_composite(layer)
+def draw_masthead(draw):
+    """Black nameplate band plus the red date strip."""
+    draw.rectangle((26, 22, 998, 90), fill=INK)
+    line = "ONE DAY  ·  ONE IMAGE  ·  THE WORLD'S NEWS"
+    f_small = sans(15)
+    w = draw.textlength(line, font=f_small)
+    draw.text(((1024 - w) / 2, 29), line, font=f_small, fill=GOLD)
+    name = "THE WORLD IN ONE PAGE"
+    f_name = serif_b(44)
+    w = draw.textlength(name, font=f_name)
+    draw.text(((1024 - w) / 2, 48), name, font=f_name, fill=CREAM)
+    draw.rectangle((26, 94, 998, 120), fill=RED)
+    date = "WEDNESDAY 18 NOVEMBER 2026"
+    f_date = sans_b(23)
+    w = draw.textlength(date, font=f_date)
+    draw.text(((1024 - w) / 2, 98), date, font=f_date, fill=(255, 255, 255))
 
 
-def smoke_puff(base, cx, cy, r, alpha=90):
-    layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    grey = (150, 148, 142)
-    d.ellipse([cx - r, cy - r * 0.7, cx + r, cy + r * 0.7],
-              fill=grey + (alpha,))
-    d.ellipse([cx - r * 0.6, cy - r, cx + r * 0.7, cy + r * 0.5],
-              fill=(170, 168, 160, alpha))
-    base.alpha_composite(layer)
+def draw_gulf(draw):
+    """Left lead panel: night over the Strait of Hormuz."""
+    x0, x1, y0, y1 = 26, 596, 130, 428
+    for i, shade in enumerate([(11, 53, 66), (9, 44, 56), (8, 36, 48)]):
+        draw.rectangle((x0, y0 + i * 67, x1, y0 + (i + 1) * 67), fill=shade)
+    for (sx, sy, sr) in [(70, 155, 2), (150, 180, 3), (240, 148, 2),
+                         (330, 170, 2), (470, 145, 3), (540, 200, 2),
+                         (110, 230, 2), (400, 205, 2), (280, 215, 2)]:
+        star(draw, sx, sy, sr, (220, 220, 200))
+    draw.ellipse((528, 146, 566, 184), fill=(232, 226, 200))
+    draw.ellipse((540, 156, 550, 166), fill=(205, 198, 170))
+    draw.arc((80, 150, 330, 330), 200, 340, fill=(255, 255, 255), width=3)
+    draw.arc((300, 120, 520, 300), 210, 330, fill=(255, 150, 60), width=3)
+    draw.ellipse((318, 152, 330, 164), fill=(255, 240, 180))
+    draw.ellipse((505, 122, 517, 134), fill=(255, 180, 90))
+    burst(draw, 180, 292, 30, 13, 10, (255, 130, 40))
+    burst(draw, 180, 292, 16, 7, 10, (255, 205, 60))
+    burst(draw, 440, 252, 38, 16, 10, (255, 130, 40))
+    burst(draw, 440, 252, 20, 9, 10, (255, 210, 70))
+    draw.rectangle((x0, 330, x1, 398), fill=SEA)
+    for wy in (344, 362, 380):
+        draw.arc((x0 + 20, wy, x1 - 20, wy + 34), 200, 340,
+                 fill=(40, 110, 140), width=2)
+    draw.rectangle((310, 368, 520, 392), fill=INK)
+    draw.rectangle((470, 350, 505, 368), fill=INK)
+    draw.rectangle((330, 352, 348, 368), fill=INK)
+    burst(draw, 410, 360, 24, 11, 9, (255, 130, 40))
+    burst(draw, 410, 360, 12, 5, 9, (255, 210, 70))
+    draw.rectangle((x0, 398, x1, y1), fill=INK)
+    cap = "MISSILES AND DRONES OVER THE GULF"
+    f_cap = sans_b(14)
+    w = draw.textlength(cap, font=f_cap)
+    draw.text(((x0 + x1 - w) / 2, 406), cap, font=f_cap, fill=(255, 255, 255))
 
 
-# ---------------------------------------------------------------- icons
-# Small drawn marks for the story grid: simple, bold, readable at 300px.
-
-def icon_flags(d, x, y, s):
-    """Three meeting flags: red, navy, white poles with pennants."""
-    for i, col in enumerate((RED, NAVY_LIGHT, GOLD)):
-        px = x + 8 + i * (s // 3)
-        d.line([px, y + 6, px, y + s - 6], fill=INK, width=3)
-        d.polygon([(px, y + 6), (px + s // 3 - 2, y + 12),
-                   (px, y + 18)], fill=col)
-
-
-def icon_virus(d, x, y, s):
-    cx, cy = x + s // 2, y + s // 2
-    r = s // 4
-    for k in range(10):
-        ang = 2 * math.pi * k / 10
-        d.line([cx + int(r * math.cos(ang)), cy + int(r * math.sin(ang)),
-                cx + int((r + 9) * math.cos(ang)),
-                cy + int((r + 9) * math.sin(ang))], fill=RED, width=3)
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=RED)
-    d.ellipse([cx - r // 2, cy - r // 2, cx, cy], fill=PAPER)
-
-
-def icon_bars(d, x, y, s):
-    """Rising bars: a chart climbing up."""
-    base = y + s - 8
-    for i, h in enumerate((s // 4, s // 2, 3 * s // 4)):
-        bx = x + 8 + i * (s // 3)
-        d.rectangle([bx, base - h, bx + s // 5, base], fill=NAVY_LIGHT)
-    d.line([x + 6, base - 3 * s // 4 - 6, x + s - 6, y + 6],
-           fill=RED, width=4)
-
-
-def icon_cyclone(d, x, y, s):
-    cx, cy = x + s // 2, y + s // 2
-    for k, r in enumerate((s // 2 - 4, s // 3, s // 5)):
-        start = k * 40
-        d.arc([cx - r, cy - r, cx + r, cy + r], start, start + 250,
-              fill=NAVY_LIGHT, width=4)
-    d.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=RED)
+def draw_kerch(draw):
+    """Right lead panel: the Kerch bridge with its road arch down."""
+    x0, x1, y0, y1 = 604, 998, 130, 428
+    draw.rectangle((x0, y0, x1, 320), fill=PALE_SKY)
+    draw.ellipse((950, 148, 982, 180), fill=(240, 225, 190))
+    for (ex, ey, er) in [(700, 150, 26), (736, 168, 20), (820, 158, 30),
+                         (856, 176, 22), (884, 146, 18)]:
+        draw.ellipse((ex - er, ey - er // 2, ex + er, ey + er // 2),
+                     fill=(150, 148, 142))
+    draw.rectangle((x0, 300, 830, 312), fill=(60, 60, 60))
+    draw.rectangle((960, 300, x1, 312), fill=(60, 60, 60))
+    draw.arc((640, 210, 790, 312), 180, 360, fill=(60, 60, 60), width=6)
+    for (ax, ay) in [(660, 300), (700, 300), (740, 300)]:
+        draw.line((ax, 300, ax, 312), fill=(60, 60, 60), width=3)
+    # The fallen span is drawn after the water, so it stays visible.
+    draw.rectangle((x0, 312, x1, 398), fill=(90, 120, 140))
+    for wy in (330, 352, 374):
+        draw.arc((x0 + 16, wy, x1 - 16, wy + 30), 200, 340,
+                 fill=(140, 165, 185), width=2)
+    for (dx, dy, dw, dh) in [(868, 356, 22, 8), (905, 378, 30, 9),
+                             (940, 360, 18, 7), (890, 392, 24, 6)]:
+        draw.rectangle((dx, dy, dx + dw, dy + dh), fill=(60, 60, 60))
+    draw.line((838, 296, 874, 342), fill=(60, 60, 60), width=10)
+    draw.line((874, 342, 928, 394), fill=(60, 60, 60), width=10)
+    draw.polygon([(856, 356), (918, 378), (938, 398), (876, 384)],
+                 fill=(60, 60, 60))
+    burst(draw, 928, 392, 20, 9, 8, (220, 235, 245))
+    draw.arc((900, 384, 960, 404), 180, 360, fill=(220, 235, 245), width=3)
+    draw.rectangle((x0, 398, x1, y1), fill=INK)
+    cap = "KERCH STRAIT — THE ROAD ARCH IS DOWN"
+    f_cap = sans_b(14)
+    w = draw.textlength(cap, font=f_cap)
+    draw.text(((x0 + x1 - w) / 2, 406), cap, font=f_cap, fill=(255, 255, 255))
 
 
-def icon_ballot(d, x, y, s):
-    d.rectangle([x + 8, y + s // 2, x + s - 8, y + s - 8],
-                outline=INK, width=3)
-    d.rectangle([x + s // 3, y + s // 3, x + 2 * s // 3, y + s // 2],
-                fill=INK)
-    d.line([x + s // 4, y + s // 2, x + s // 2 - 2, y + 3 * s // 4,
-            x + 3 * s // 4, y + s // 4], fill=RED, width=5)
+def draw_lead_visual(draw):
+    """Both lead panels with their ink frames."""
+    draw_gulf(draw)
+    draw_kerch(draw)
+    draw.rectangle((26, 130, 596, 428), outline=INK, width=3)
+    draw.rectangle((604, 130, 998, 428), outline=INK, width=3)
 
 
-def icon_plane(d, x, y, s):
-    """A transport plane in side view, nose down."""
-    cx, cy = x + s // 2, y + s // 2
-    # fuselage: long thin diamond, nose to the lower left
-    d.polygon([(cx - s // 2 + 4, cy + 2), (cx - s // 6, cy - 6),
-               (cx + s // 3, cy - 2), (cx + s // 2, cy + 4),
-               (cx + s // 6, cy + 10), (cx - s // 4, cy + 10)],
-              fill=NAVY_LIGHT)
-    # main wing, swept back
-    d.polygon([(cx - s // 8, cy + 2), (cx + s // 10, cy + s // 3),
-               (cx + s // 4, cy + s // 3 - 6), (cx + s // 12, cy + 4)],
-              fill=NAVY_LIGHT)
-    # tail fin
-    d.polygon([(cx + s // 4, cy - 2), (cx + s // 3, cy - s // 4),
-               (cx + 5 * s // 12, cy - s // 4 + 4), (cx + s // 3, cy + 2)],
-              fill=NAVY_LIGHT)
+def draw_lead_headline(draw):
+    """The two-line lead headline and its three-line deck."""
+    lines = ["MISSILES OVER THE GULF,", "THE BRIDGE FALLS"]
+    centre_block(draw, lines, serif_b(56), 512, 422, INK, 58)
+    deck = ("US jets hit an Iranian missile site on Qeshm Island; Iran "
+            "answers with drones over Bahrain and Kuwait, and a Houthi "
+            "missile is shot down over Riyadh. On day two of the strikes, "
+            "Ukraine drops the Kerch bridge's 227-metre road arch into "
+            "the strait.")
+    wrapped = wrap(draw, deck, serif(20), 920)
+    centre_block(draw, wrapped, serif(20), 512, 540, (40, 40, 40), 24)
+    draw.line((26, 616, 998, 616), fill=INK, width=2)
+    draw.line((26, 621, 998, 621), fill=INK, width=1)
 
 
-# ------------------------------------------------------------- lead art
-# Dusk over the strait: a bridge with its road arch down on the left,
-# missiles and a burning tanker over the Gulf on the right.
-
-def draw_lead_art(img, x0, y0, x1, y1):
-    d = ImageDraw.Draw(img, "RGBA")
-    horizon = y0 + int((y1 - y0) * 0.62)
-    v_gradient(d, (x0, y0, x1, horizon), (11, 28, 51), (232, 122, 74))
-    v_gradient(d, (x0, horizon, x1, y1), (18, 48, 58), (10, 26, 34))
-
-    # low sun glow behind the smoke, kept small so it never reads as a
-    # second fireball on the bridge
-    soft_disc(img, x0 + int((x1 - x0) * 0.60), horizon - 10, 46,
-              (255, 170, 90), 110)
-    soft_disc(img, x0 + int((x1 - x0) * 0.60), horizon - 10, 22,
-              (255, 220, 150), 140)
-
-    # missile streaks, upper right
-    for (sx, sy, ex, ey) in ((760, 150, 830, 196), (820, 132, 890, 180),
-                             (700, 178, 770, 220)):
-        d.line([sx, sy, ex, ey], fill=(255, 240, 200, 230), width=4)
-        d.ellipse([ex - 4, ey - 4, ex + 4, ey + 4],
-                  fill=(255, 220, 140, 255))
-
-    # smoke over the gap and over the tanker, hugging the deck line
-    smoke_puff(img, x0 + 462, y0 + 84, 40, 95)
-    smoke_puff(img, x0 + 500, y0 + 62, 30, 75)
-    smoke_puff(img, x0 + 880, y0 + 96, 26, 85)
-
-    # sea glints
-    for gy in (horizon + 14, horizon + 30, horizon + 48):
-        for gx in range(x0 + 30, x1 - 60, 90):
-            d.line([gx, gy, gx + 42, gy], fill=(214, 164, 62, 120),
-                   width=2)
-
-    deck_y = horizon - 42
-    # bridge deck: two standing spans, a gap where the arch fell
-    d.rectangle([x0, deck_y, x0 + 400, deck_y + 12], fill=(16, 22, 30))
-    d.rectangle([x0 + 560, deck_y, x1, deck_y + 12], fill=(16, 22, 30))
-    # pillars
-    for px in (x0 + 60, x0 + 220, x0 + 350, x0 + 640, x0 + 800, x0 + 940):
-        d.rectangle([px, deck_y + 12, px + 14, horizon + 26],
-                    fill=(16, 22, 30))
-    # standing arch ribs on the two spans
-    d.arc([x0 + 60, deck_y - 58, x0 + 340, deck_y + 10], 180, 360,
-          fill=(16, 22, 30), width=10)
-    d.arc([x0 + 620, deck_y - 58, x0 + 900, deck_y + 10], 180, 360,
-          fill=(16, 22, 30), width=10)
-    # the fallen arch: a tilted slab half in the water, mid-gap
-    d.polygon([(x0 + 428, deck_y + 6), (x0 + 520, deck_y + 30),
-               (x0 + 500, deck_y + 62), (x0 + 412, deck_y + 40)],
-              fill=(28, 36, 46))
-    d.polygon([(x0 + 470, deck_y + 58), (x0 + 540, deck_y + 78),
-               (x0 + 528, deck_y + 96), (x0 + 462, deck_y + 78)],
-              fill=(20, 28, 38))
-    # splash ring where it hit
-    d.ellipse([x0 + 440, horizon + 18, x0 + 540, horizon + 34],
-              outline=(220, 225, 225, 180), width=3)
-
-    # tanker on the right, burning
-    tx, ty = x0 + 830, horizon + 34
-    d.polygon([(tx, ty), (tx + 130, ty), (tx + 118, ty + 18),
-               (tx + 12, ty + 18)], fill=(10, 14, 20))
-    d.rectangle([tx + 30, ty - 16, tx + 58, ty], fill=(10, 14, 20))
-    soft_disc(img, tx + 44, ty - 20, 18, (255, 140, 40), 170)
-    soft_disc(img, tx + 44, ty - 20, 8, (255, 220, 120), 200)
-
-    # dark frame around the picture
-    d.rectangle([x0, y0, x1 - 1, y1 - 1], outline=(10, 10, 10), width=3)
+def draw_icon(draw, kind, x, y):
+    """A tiny drawn glyph in a 44x44 box at (x, y)."""
+    draw.rectangle((x, y, x + 44, y + 44), outline=INK, width=2,
+                   fill=(238, 228, 205))
+    cx, cy = x + 22, y + 22
+    if kind == "summit":
+        for bx, bh, col in ((x + 8, 26, NAVY), (x + 19, 32, RED),
+                            (x + 30, 24, GOLD)):
+            draw.rectangle((bx, y + 38 - bh, bx + 8, y + 38), fill=col)
+    elif kind == "ebola":
+        draw.rectangle((cx - 4, y + 10, cx + 4, y + 34), fill=RED)
+        draw.rectangle((x + 10, cy - 4, x + 34, cy + 4), fill=RED)
+    elif kind == "measles":
+        for (dx, dy, dr) in ((-10, -8, 5), (8, -10, 4), (0, 0, 6),
+                             (-8, 10, 4), (10, 8, 5)):
+            draw.ellipse((cx + dx - dr, cy + dy - dr, cx + dx + dr,
+                          cy + dy + dr), fill=RED)
+    elif kind == "cyclone":
+        for r in (6, 11, 16):
+            draw.arc((cx - r, cy - r, cx + r, cy + r), 40, 300,
+                     fill=NAVY, width=3)
+    elif kind == "senate":
+        star(draw, cx, cy, 16, GOLD)
+        draw.ellipse((cx - 3, cy - 3, cx + 3, cy + 3), fill=RED)
+    elif kind == "crash":
+        draw.polygon([(cx, cy + 14), (cx - 14, cy - 8), (cx + 14, cy - 8)],
+                     fill=(60, 60, 60))
+        for (dx, dy) in ((-8, -14), (2, -17), (10, -13)):
+            draw.ellipse((cx + dx - 2, cy + dy - 2, cx + dx + 2,
+                          cy + dy + 2), fill=(150, 148, 142))
 
 
-# -------------------------------------------------------------- stories
-
-LEAD_HEAD = ["MISSILES OVER THE GULF,", "THE BRIDGE FALLS"]
-LEAD_TEXT = (
-    "US jets struck an Iranian missile site on Qeshm Island. Iran answered "
-    "with drones at Bahrain \u2014 its third attack there this week \u2014 and "
-    "at the American base in Kuwait, while a Houthi missile aimed at Riyadh "
-    "was shot down and a gas tanker burned in the Strait of Hormuz. In the "
-    "Black Sea, Ukraine dropped the Kerch bridge\u2019s 227-metre road arch "
-    "into the strait; the road is closed and two people were killed."
-)
-
-# (kicker, headline, summary, icon function)
-GRID = [
+STORIES = [
     ("SUMMIT", "Trump, Xi and Putin to meet in Shenzhen",
-     "The three leaders hold their first trilateral talks on Thursday, "
-     "on the APEC sidelines.", icon_flags),
-    ("HEALTH", "Ebola outbreak passes 11,000 cases",
-     "More than 5,400 dead in Congo; nearly three in four infected "
-     "children under five do not survive.", icon_virus),
-    ("HEALTH", "US loses its measles-free status",
+     "First-ever trilateral talks on Thursday, on the APEC sidelines; "
+     "Xi hosted Putin as the summit opened.", "summit"),
+    ("EBOLA", "Ebola passes 11,000 cases in Congo",
+     "More than 5,400 dead; nearly three in four infected children "
+     "under five do not survive.", "ebola"),
+    ("MEASLES", "US loses its measles-free status",
      "Elimination status held for 26 years ends; 5,400 cases and "
-     "10 deaths reported this year.", icon_bars),
-    ("WEATHER", "Category 5 cyclone hits Cook Islands",
-     "Cyclone Xavier lashes the Northern Cook Islands with gusts "
-     "up to 315 km/h.", icon_cyclone),
-    ("POLITICS", "Peltola flips Alaska\u2019s Senate seat",
-     "Democrat Mary Peltola beats Dan Sullivan; Democrats reach "
-     "56 seats in the Senate.", icon_ballot),
-    ("DISASTER", "Russian military plane crashes",
-     "An An-12 transport comes down in Siberia\u2019s Kemerovo region; "
-     "all 19 aboard are killed.", icon_plane),
+     "10 deaths reported this year.", "measles"),
+    ("CYCLONE", "Category 5 Xavier lashes Cook Islands",
+     "Gusts to 315 km/h in the Northern Cook Islands as the storm "
+     "makes landfall.", "cyclone"),
+    ("SENATE", "Peltola flips Alaska's Senate seat",
+     "Democrat beats Dan Sullivan; Democrats reach 56 seats in "
+     "the Senate.", "senate"),
+    ("CRASH", "Russian military plane crashes, 19 dead",
+     "An An-12 transport comes down in Siberia's Kemerovo region; "
+     "all aboard are killed.", "crash"),
 ]
 
-ALSO = (
-    "Romania: a 5.3 quake is felt in Bucharest and across south-eastern "
-    "Europe, with no casualties reported  \u2022  Cold kills displaced "
-    "people in tents in Gaza as four nations demand aid access  \u2022  "
-    "Israel\u2019s president asks Gadi Eisenkot to form the next government  "
-    "\u2022  Cyclone Akvan bears down on India\u2019s Andhra coast, landfall "
-    "expected on 20 November"
-)
+
+def draw_card(draw, x, y, w, h, kicker, headline, deck, icon):
+    """One story cell: kicker, headline, deck, small icon at right."""
+    draw.line((x, y, x + w, y), fill=INK, width=2)
+    draw.text((x, y + 5), kicker, font=sans_b(13), fill=RED)
+    head_lines = wrap(draw, headline, sans_b(20), w - 58)
+    hy = y + 23
+    for line in head_lines:
+        draw.text((x, hy), line, font=sans_b(20), fill=INK)
+        hy += 22
+    deck_lines = wrap(draw, deck, sans(14), w - 58)[:2]
+    dy = hy + 3
+    for line in deck_lines:
+        draw.text((x, dy), line, font=sans(14), fill=(50, 50, 50))
+        dy += 17
+    draw_icon(draw, icon, x + w - 46, y + 26)
 
 
-# -------------------------------------------------------------- layout
-
-def draw_masthead(d):
-    d.rectangle([0, 0, W, 96], fill=NAVY)
-    d.text((20, 20), "THE WORLD TODAY", font=F_SERIF_BIG(52), fill=(255, 255, 255))
-    d.text((1004, 16), "WEDNESDAY", font=F_BOLD(26),
-           fill=(255, 255, 255), anchor="ra")
-    d.text((1004, 50), "18 NOVEMBER 2026", font=F_BOLD(26),
-           fill=GOLD, anchor="ra")
-    d.rectangle([0, 96, W, 102], fill=RED)
+def draw_grid(draw):
+    """The 2x3 grid of stories below the lead."""
+    card_w, card_h, gap_x, gap_y = 478, 100, 16, 8
+    for i, (kicker, headline, deck, icon) in enumerate(STORIES):
+        col, row = i % 2, i // 2
+        x = 26 + col * (card_w + gap_x)
+        y = 630 + row * (card_h + gap_y)
+        draw_card(draw, x, y, card_w, card_h, kicker, headline, deck, icon)
 
 
-def draw_lead(d, y):
-    f_head = F_BOLD(48)
-    y = draw_lines(d, LEAD_HEAD, f_head, 20, y, INK, 54)
-    y += 4
-    f_body = F_REG(19)
-    lines = wrap_text(LEAD_TEXT, f_body, W - 40)
-    y = draw_lines(d, lines, f_body, 20, y, (40, 40, 40), 25)
-    return y
+def draw_also_today(draw):
+    """Navy strip with the rest of the day's news."""
+    draw.rectangle((26, 954, 998, 1000), fill=NAVY)
+    draw.text((40, 969), "ALSO TODAY", font=sans_b(15), fill=GOLD)
+    items = ("Romania hit by a 5.3 quake  •  Cold kills displaced people "
+             "in Gaza tents  •  Eisenkot asked to form Israel's next "
+             "government  •  Cyclone Akvan nears the Andhra coast, "
+             "landfall due Nov 20")
+    lines = wrap(draw, items, sans(15), 814)
+    y = 959
+    for line in lines:
+        draw.text((170, y), line, font=sans(15), fill=CREAM)
+        y += 19
 
 
-def draw_grid(d, y):
-    d.text((20, y), "MORE OF THE DAY", font=F_BOLD(16), fill=RED)
-    d.line([210, y + 11, W - 20, y + 11], fill=CARD_EDGE, width=2)
-    y += 24
-    cell_w, cell_h, gap = 488, 112, 6
-    for row in range(3):
-        for col in range(2):
-            kicker, head, summ, icon = GRID[row * 2 + col]
-            x = 20 + col * (cell_w + 8)
-            cy = y + row * (cell_h + gap)
-            d.rectangle([x, cy, x + cell_w, cy + cell_h], fill=CARD,
-                        outline=CARD_EDGE, width=1)
-            d.rectangle([x, cy, x + 5, cy + cell_h], fill=RED)
-            icon(d, x + 16, cy + 24, 64)
-            tx = x + 92
-            d.text((tx, cy + 10), kicker, font=F_BOLD(13), fill=RED)
-            f_h = F_BOLD(21)
-            hl = wrap_text(head, f_h, cell_w - 108)[:2]
-            hy = draw_lines(d, hl, f_h, tx, cy + 30, INK, 25)
-            f_s = F_REG(15)
-            sl = wrap_text(summ, f_s, cell_w - 108)[:2]
-            draw_lines(d, sl, f_s, tx, hy + 2, (60, 60, 60), 19)
-    return y + 3 * cell_h + 2 * gap
+def draw_footer(draw):
+    """One small line owning up to the drawing and dating the page."""
+    note = ("Wednesday 18 November 2026  ·  The world's news in one image  ·  "
+            "Every scene is drawn, not photographed")
+    f = sans(12)
+    w = draw.textlength(note, font=f)
+    draw.text(((1024 - w) / 2, 1005), note, font=f, fill=(90, 90, 90))
 
 
-def draw_also_today(d, y):
-    band_h = 82
-    d.rectangle([0, y, W, y + band_h], fill=NAVY)
-    d.text((20, y + 6), "ALSO TODAY", font=F_BOLD(16), fill=GOLD)
-    f = F_REG(15)
-    lines = wrap_text(ALSO, f, W - 40)[:3]
-    draw_lines(d, lines, f, 20, y + 26, (235, 235, 235), 19)
-    return y + band_h
-
-
-def build():
-    img = Image.new("RGBA", (W, H), PAPER + (255,))
-    d = ImageDraw.Draw(img, "RGBA")
-    draw_masthead(d)
-    draw_lead_art(img, 20, 112, W - 20, 330)
-    y = draw_lead(d, 344)
-    y = draw_grid(d, y + 10)
-    draw_also_today(d, y + 6)
-    return img
-
-
-def main():
-    here = os.path.dirname(os.path.abspath(__file__))
-    out = os.path.join(here, "entry.png")
-    build().convert("RGB").save(out, "PNG")
-    print("wrote", out, os.path.getsize(out), "bytes")
+def build(out_path="entry.png"):
+    """Compose the whole front page and save it as a PNG."""
+    img = Image.new("RGB", (W, H), PAPER)
+    draw = ImageDraw.Draw(img)
+    draw_masthead(draw)
+    draw_lead_visual(draw)
+    draw_lead_headline(draw)
+    draw_grid(draw)
+    draw_also_today(draw)
+    draw_footer(draw)
+    img.save(out_path, format="PNG", optimize=True)
+    return out_path
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    target = sys.argv[1] if len(sys.argv) > 1 else "entry.png"
+    build(target)
+    print("wrote", target)
